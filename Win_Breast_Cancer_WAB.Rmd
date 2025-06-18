@@ -35,18 +35,17 @@ if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-proj
 if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
 if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
 if(!require(scales)) install.packages("scales", repos = "http://cran.us.r-project.org")
-# if(!require(xfun)) install.packages("xfun", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
 if(!require(readr)) install.packages("readr", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
 if(!require(rstudioapi)) install.packages("rstudioapi", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
 if(!require(funModeling)) install.packages("funModeling", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
 if(!require(gridExtra)) install.packages("gridExtra", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
-
-library(nortest)
-library(broom)
-library(rstatix)
-library(corrplot)
-library(pROC)
+if(!require(doParallel)) install.packages("doParallel", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(nortest)) install.packages("nortest", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(broom)) install.packages("broom", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(rstatix)) install.packages("rstatix", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(corrplot)) install.packages("corrplot", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(pROC)) install.packages("corrplot", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
 
 ```
 
