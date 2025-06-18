@@ -1,0 +1,1039 @@
+---
+title: "HarvardX: PH125.9x Data Science  \n  Breast Cancer Wisconsin (Diagnostic) "
+author: "Wilber Acuña-Bravo"
+date: "_`r format(Sys.Date(), '%d %B, %Y')`_"
+bibliography: mybiblio.bib
+output:
+  bookdown::pdf_document2:
+    fig_caption: true   
+    number_sections: true
+    toc: true
+    toc_depth: 3
+    keep_tex: true
+    df_print: kable
+    includes:
+      in_header: preamble.tex
+link-citations: true
+linkcolor: blue
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE,
+                      fig.align="center", out.width="80%")
+options(digits = 7)  # Default is usually 7
+# Mark the script directory as R working directory
+script_path <- rstudioapi::getSourceEditorContext()$path
+setwd(dirname(script_path))
+
+# Open required package libraries
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(dplyr)) install.packages("dplyr", repos = "http://cran.us.r-project.org")
+if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
+if(!require(lubridate)) install.packages("lubridate", repos = "http://cran.us.r-project.org")
+if(!require(stringr)) install.packages("stringr", repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2", repos = "http://cran.us.r-project.org")
+if(!require(knitr)) install.packages("knitr", repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra", repos = "http://cran.us.r-project.org")
+if(!require(scales)) install.packages("scales", repos = "http://cran.us.r-project.org")
+# if(!require(xfun)) install.packages("xfun", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(readr)) install.packages("readr", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(rstudioapi)) install.packages("rstudioapi", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(funModeling)) install.packages("funModeling", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+if(!require(gridExtra)) install.packages("gridExtra", dependencies = c("Depends", "Suggests"), repos = "http://cran.us.r-project.org")
+
+library(nortest)
+library(broom)
+library(rstatix)
+library(corrplot)
+library(pROC)
+
+```
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+# **Introduction**
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+Breast cancer remains a leading cause of mortality among women worldwide, with early and accurate diagnosis significantly improving survival rates. This report details a comprehensive machine learning approach to classify breast tumors as malignant or benign using the Wisconsin Diagnostic Breast Cancer (WDBC) dataset. This dataset [@Street1993NuclearFE], curated by the University of Wisconsin, comprises 569 samples derived from digitized images of fine needle aspirates (FNA) of breast masses, each characterized by 30 quantitative features describing cellular nuclei properties (e.g., radius, texture, concavity). learning models for breast cancer detection using a dedicated dataset. 
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## The Training dataset
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+The data set can be downloaded from here [(link)](https://archive.ics.uci.edu/static/public/17/breast+cancer+wisconsin+diagnostic.zip). According to data description provided in the file "wdbc.names",  "Features are computed from a digitized image of a fine needle aspirate (FNA) of a breast mass. They describe characteristics of the cell nuclei present in the image." From each cell nucleus image a set of features was obtained:
+
+\begin{enumerate}
+  \item radius (mean of distances from center to points on the perimeter)
+  \item texture (standard deviation of gray-scale values)
+  \item perimeter
+  \item area
+  \item smoothness (local variation in radius lengths)
+  \item compactness (perimeter\^{}2 \/ area - 1.0)
+  \item concavity (severity of concave portions of the contour)
+  \item concave points (number of concave portions of the contour)
+  \item symmetry 
+  \item fractal dimension ("coastline approximation" - 1)
+\end{enumerate}
+
+The mean, standard error, and "worst" or largest (mean of the three
+largest values) of these features were computed for each image
+
+For each image, basic statistic parameters were calculated from these features, this is, the mean, standard error, and "worst" or largest (mean of the three largest values). This resulted in a data set of 30 characteristics for each cell image. The basic  and the additional  features were arranged, by blocks of 10 (means, standard errors, worst), as columns of the data set. A first column containing the ID number and a second one, containing a "Diagnosis" (Malignant, Benign) complete the columns in the data set.
+
+```{r load-data-train, include=FALSE}
+file_path <- file.path(getwd(), "my_data_BreastCancer_final.RData")
+if (file.exists(file_path)) {
+  load(file_path)
+  message("Data loaded from: ", file_path)
+} else{
+  print("Data set not found. Please run Win_BreastCancer_1_WAB.R first" )}
+```
+
+```{r analyze-na-inf, echo=FALSE}
+na_inf_summary <-funModeling::df_status(cancer_data, print_results = FALSE)
+
+kable(na_inf_summary, caption = "Summary of missing data") %>%
+    kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+
+The Table \@ref(tab:analyze-na-inf) summarizes the contents of the data set. As can be seen there are `r na_inf_summary %>% select(q_na) %>% dplyr::summarize(n_na = sum()) %>% pull(n_na)` missing values as well as `r na_inf_summary %>% select(q_na) %>% dplyr::summarize(n_inf = sum()) %>% pull(n_inf)` infinity values. 
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+# **Variables preliminary exploration**
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+This section is devoted to analyse the main properties found in the **breast cancer** data set. 
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## The `diagnosis` variable
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+The `diagnosis` variable is the dependent variable for this model. The Figure \@ref(fig:plot-diagnosis-dist) presents the histograms of the `diagnosis` variable. Proportions for both classes within `diagnosis` are summarized in Table \@ref(tab:table-proportion-diag), where clearly the `Benign` class is much more common than the `Malignant` one.
+
+
+```{r plot-diagnosis-dist, fig.cap="Diagnosis Distribution"}
+prop_diag <- cancer_data %>%
+  count(diagnosis) %>%  # counts occurrences of each diagnosis
+  mutate(proportion = n / sum(n)) # calculates the proportion relative to the total
+
+# Plot proportions of "Malignant" and "Beningn" in the data set
+ggplot(prop_diag, aes(x = diagnosis, y = proportion, fill = diagnosis)) +
+  geom_bar(stat = "identity") + # Use stat="identity" because 'y' now directly represents height
+  geom_text(
+    aes(label = scales::percent(proportion)), # Format as percentage
+    vjust = -0.5, # Adjust vertical position slightly above the bar
+    color = "black"
+  ) +
+ scale_fill_manual(values = c("Benign" = "steelblue", "Malignant" = "firebrick")) + 
+  labs(
+    x = "Diagnosis",
+    y = "Proportion"
+  ) +
+  theme_light()
+```
+
+```{r table-proportion-diag, echo=FALSE}
+prop_diag <- cancer_data %>%
+  count(diagnosis) %>%  # counts occurrences of each diagnosis
+  mutate(proportion = n / sum(n)) # calculates the proportion relative to the total
+
+kable(prop_diag, caption = "Summary of diagnosis proportions in data set") %>%
+    kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Data significance
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+Data significance typically refers to variables that show statistically meaningful differences between classes, in this particular case, Benign/Malignant. A feature is considered significant if:
+\begin{enumerate}
+  \item It shows statistically reliable differences between benign/malignant cases (low p-value)
+  \item The effect size is large enough to be biologically/medically meaningful
+  \item It improves model performance when included
+\end{enumerate}
+
+Defining this characteristic is fundamental for the modelling task, if it is considered that the model must predict, from features, if a laboratory sample image conduces to a benign or a malignant diagnostic. 
+
+### Statistical differences
+The features used in the model provide useful information to the classification process which requires from them statistical differences through the classes. This is, if for a particular feature its probability distribution differs between benign and malignant classes (the difference can not be attributed to chance), then that feature must be considered in the model.
+
+As a matter of fact, a typical test for studying the differences between probabilistic distributions is the *Welch's t-test*. However, even powerful, it is also known that its efficacy is limited to normally distributed data. This poses an additional analysis on the data set, if it is normally distributed or not.
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+### Normality{#Normality}
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+There are many standard tests for testing normality in data sets. For example, are common the Shapiro-Wilk normality Test[@bib:Royston1982],  the Anderson-Darling [@bib:Stephens1986] test for normality,  among others [@bib:thode2002]. Their usage depends on aspects like how large the sample is, or sensitivity to tail deviations, skewness, etc. Here the Anderson-Darling is used, according to the sample size and robustness of the test.
+
+
+```{r normality-test, include=FALSE}
+normality_results_AD <- cancer_data %>%
+  select(-iD,-diagnosis) %>%
+  map_df(~ broom::tidy(ad.test(.)), .id = "feature") %>% # ad.test() works on vectors, so a map must be used
+  mutate(normal = ifelse(p.value > 0.05, "Normal", "Non-Normal")) %>%
+  select(-method)
+
+# Anderson-Darling test for normality by features grouped by diagnosis
+normality_by_diagnosis <- cancer_data %>% 
+  select(-iD) %>%
+  group_by(diagnosis) %>% 
+  dplyr::summarize(
+    across(
+      .cols = where(is.numeric),  # Auto-selects all numeric columns (cols 3-32)
+      .fns = ~ broom::tidy(ad.test(.)),  # Anderson-Darling test
+      .names = "{.col}"  # Column name format
+    )
+  ) %>%
+  tidyr::pivot_longer(
+    cols = -diagnosis,
+    names_to = "feature",
+    values_to = "test_results"
+  ) %>%
+  unnest(test_results)  # Unpack the tidy() output
+# View results
+normality_by_diagnosis <- normality_by_diagnosis %>%
+  select(diagnosis, feature, statistic, p.value) %>%
+  mutate(normal = ifelse(p.value > 0.05, "Normal", "Non-Normal")) %>%
+  arrange(feature, diagnosis)
+```
+
+```{r table-normality, echo=FALSE}
+# formatting for better table printing
+normality_results_AD <- normality_results_AD %>%
+  mutate(
+    p.value = sprintf("%.3e", p.value), # For 3 decimal places in scientific notation
+    statistic = sprintf("%.4e", statistic) # For 4 decimal places
+  )
+
+kable(normality_results_AD, caption = "Arlington-Darling normality test") %>%
+    kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+
+Table \@ref(tab:table-normality) summarizes the results of the Anderson-Darling test applied to the 30 features in the **breast cancer** data set. The immediate conclusion is that the p-value for all features is uniformly smaller than 0.05. This indicates that the null hypothesis is rejected across the entire data set, meaning the data are not normally distributed.
+
+The results in Table \@ref(tab:table-normality) were obtained by testing the normality of each feature across the entire data set. However, these features can also be grouped by `diagnosis` (benign or malignant) and then re-evaluated for normality within those specific groups. Figure \@ref(fig:plot-normality) illustrates this case, clearly showing that some feature sets may indeed be normally distributed when grouped by their diagnosis class.
+
+
+```{r plot-normality, fig.cap="Normality Status by Diagnosis Group" }
+# Normality Status by Diagnosis Group
+normality_by_diagnosis %>%
+ggplot(aes(x = diagnosis, y = feature, fill = normal)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  scale_fill_manual(values = c("Normal" = "blue", "Non-Normal" = "firebrick")) +
+  labs(
+    x = "Diagnosis",
+    y = "Feature",
+    fill = "Normality"
+  ) +
+  theme_light()
+```
+These normality tests provide additional insightful for future steps of the modelling process. It is clear now that **model structures assuming some statistical properties, such as normality, on the data should be avoided**. The other aspect for taking into account is the so called *effect size*, and which statistical test is better for this data set.
+
+### Statistical tests (p-value)
+
+For non-parametric data, the Mann-Whitney U-test or Wilcoxon Rank-Sum Test is a non-parametric alternative to the independent two samples t-test for comparing two independent groups of samples, it is a suitable tool to determine if two groups have *different distributions*. In this case the null hypothesis ($H_0$) indicates if the distributions of the two groups are identical versus the alternative one where the distributions are shifted (different medians). It is important to stress the fact that the p-value determines the significance of the difference (reject $H_0$: distributions differ), but does not quantify the magnitude of the difference. Here this test will be applied to the **breast cancer** data set through the `wilcox_test()` function of `rstatix` package.
+
+```{r wilcoxon-test, include=FALSE}
+# Wilcoxon test for all features (non-normal data)
+wilcoxon_results <- cancer_data %>%
+  select(-iD) %>%
+  pivot_longer(-diagnosis, names_to = "feature") %>%
+  group_by(feature) %>%
+  rstatix::wilcox_test(value ~ diagnosis) %>%  # From rstatix
+  adjust_pvalue(method = "fdr") %>%  # Benjamini-Hochberg correction
+  add_significance("p.adj")# %>%   arrange(p)
+```
+
+### Effect
+
+The *effect size* [@SizeEffect] quantifies the magnitude of the difference or relationship between a specific feature and the dependent variable, which in this case is `diagnosis` (benign or malignant). This metric helps determine if a particular feature, such as `avg_radius` or `w_concave_points`, exhibits a difference large enough to be biologically or medically meaningful. In statistical learning, effect size can serve as a feature selection criterion: features with *small effect sizes may be less useful for building predictive models* and can often be removed to reduce dimensionality and enhance model performance. Unlike a p-value, which tells you if a difference or relationship is likely due to chance (statistical significance), effect size tells how large or practically important that difference or relationship is.
+
+A standard test for measuring effect size is Cohen's d [@bib:Cohen1988]. However, this test is limited by its requirement for normally distributed data. As noted in Section \@ref(Normality), the **breast cancer** data set is not normally distributed, necessitating the use of a non-parametric alternative. For non-normal data the alternative is again the Wilcoxon tests, in this case, the *Rank-Biserial Correlation* defines a measure of effect size for the Wilcoxon rank-sum test, quantifying the strength and direction of the difference between two groups. Here this test is applied through the `wilcox_effsize()` function. 
+
+```{r effect-size-rank, include=FALSE}
+effect_sizes_rank <- cancer_data %>%
+  select(-iD) %>%
+  pivot_longer(-diagnosis, names_to = "feature") %>%
+  group_by(feature) %>%
+  rstatix::wilcox_effsize(value ~ diagnosis) #%>%  
+  # arrange(desc(abs(effsize)))
+
+effect_sizes_rank %>% arrange(desc(effsize))%>% print(n=30)
+
+# Merge results
+feature_importance <- wilcoxon_results %>%
+  left_join(effect_sizes_rank, by = "feature") %>% arrange(desc(effsize))
+```
+
+Both of these tests are complementary, so it is good statistical practice to report both statistical significance (p-value) and effect size. The Table \@ref(tab:feature-importance-tab) summarizes the statistical Significance and size effect for the **breast cancer** data set, as well as the Figure \@ref(fig:feature-importance-plot). Here the effects are classified as: 0.10 - < 0.3 (small effect), 0.30 - < 0.5 (moderate effect) and >= 0.5 (large effect). 
+
+<!-- Prioritize features with: -->
+<!-- p.adj < 0.05 AND |effsize| ≥ 0.3 (medium/large effects). -->
+
+```{r feature-importance-tab, echo=FALSE}
+
+col_a<-which(feature_importance$effsize < 0.3 & feature_importance$p.adj<0.05) 
+col_b<-which(feature_importance$effsize < 0.3 & feature_importance$p.adj>0.05)
+
+feat_imp <- feature_importance %>% 
+  select(feature,group1.x,group2.x,p,p.adj,effsize,magnitude) %>%
+  rename("group 1" = group1.x, "group 2"= group2.x) %>%
+  # formatting for better table printing
+  mutate(
+    p.adj = sprintf("%.4e", p.adj), 
+    p = sprintf("%.4e", p) # For 4 decimal places
+  )%>%
+  arrange(desc(effsize))
+
+# Include data in table
+kable(feat_imp, caption = "Statistical Significance and size effect for the breast cancer dataset") %>%
+  row_spec(
+    row = col_a, # Add color to small effect rows
+    color = "red") %>%
+  row_spec(
+    row = col_b, # Add color to small effect rows
+    color = "blue",
+  ) %>%
+    kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+Table \@ref(tab:feature-importance-tab) highlights a key reason why both statistical tests were included. The rows marked in blue show an interesting scenario: an effect size below 0.3 (considered "small") alongside a p-value greater than 0.05. This combination might seem contradictory, but it often arises when large sample sizes make it possible to detect even very small differences. In such cases, it's generally more informative to prioritize the **effect size** as it indicates the practical significance of the finding. The issue can also been observed in Figure \@ref(fig:feature-importance-plot) where one grey point is out the dashed boundaries.
+
+```{r feature-importance-plot, fig.cap="Feature Significance Analysis", fig.pos="H"}
+feature_importance %>%
+  ggplot(aes(x = effsize, y = -log10(p.adj), color = magnitude)) +
+  geom_point() +
+  geom_vline(xintercept = c(0.3, 0.5), linetype = "dashed") + # vertical lines for effects 0.10 - < 0.3 (small effect), 0.30 - < 0.5 (moderate effect) and >= 0.5 (large effect)
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed") + # horiz line for adj.p-value
+  ggrepel::geom_text_repel(
+    aes(label = feature), size = 3,
+    max.overlaps = Inf,
+    box.padding = unit(0.5, "lines"), # Increase padding around labels
+    point.padding = unit(0.5, "lines") # Increase padding around points
+  ) +
+  scale_color_manual(
+    values = c(
+      "small" = "#505050",
+      "moderate" = "blue",
+      "large" = "firebrick"  # Red for high importance
+    ),
+    breaks = c("small","moderate",  "large")  # Force legend order
+  ) +
+  labs(x = "Effect Size (rank-biserial correlation)", 
+       y = "-log10(Adjusted p-value)") +
+  theme_light()
+```
+The main conclusion of this analysis is that, if dimensionality reduction is going to be considered, features with small effect are the candidates. 
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Data correlation
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+Another interesting characteristic in **breast cancer** data set is the fact that very similar features are reported, for example the radio, perimeter and area of nucleus (in average), which presumably are highly correlated. The Figure \@ref(fig:correlation-plot) shows the correlation between features of the data set. As expected there are highly correlated features related with areas, perimeters and radios, for the case of *mean* type variables as well as *worst* type variables. This result also points to an analysis of dimension reduction.
+
+```{r correlation-matrix, include=FALSE}
+# Compute correlations for numeric features
+cor_matrix <- cor(cancer_data[, 3:32])
+```
+
+```{r correlation-plot, fig.cap="Correlation between features"}
+## Data dimensionality and Principal component analysis
+corrplot::corrplot(cor_matrix,
+                   method = "square",      # Shape of the correlation indicators: "circle", "square", "ellipse", "number", "color", "pie"
+                   type = "upper",         # Display only the "upper" triangle of the matrix to avoid redundancy
+                   order = "hclust",       # Order variables by hierarchical clustering to group similar correlations
+                   diag = FALSE,           # Do not display the diagonal (correlation of variable with itself is always 1)
+                   tl.col = "black",       # Color of the text labels (variable names)
+                   # tl.srt = 45,            # Rotate text labels for better readability if names are long
+                   tl.cex = 0.6,           # Size of text labels
+                   cl.pos = "r",           # Position of the color legend ("r" for right, "b" for bottom)
+                   cl.cex = 0.7,           # Size of the color legend labels
+)
+```
+
+### Principal components and dimensionality reduction
+Principal Component Analysis (PCA) is a technique used to reduce the number of features (dimensions) in a dataset while keeping as much important information as possible. It works by finding new axes (called principal components) that capture the most variation in the data. The first principal component explains the most variance, the second explains the next most, and so on.
+
+The Figure \@ref(fig:PCA-var-explained-plot) shows the percentage of variance explained versus the number of principal components used. As can be seen for reaching a 95% of variable explained, a total of 10 principal components must be considered.
+
+```{r PCA-analisys, include=FALSE}
+# calculate the principal components
+pca_results <- prcomp(cancer_data[, 3:32], scale. = TRUE)
+
+pca_summary <- summary(pca_results)
+var_explained <- pca_summary$importance["Cumulative Proportion", ]
+
+data_plot_pca <- tibble(
+  PC = 1:length(var_explained),
+  Cumulative_Variance = as.numeric(var_explained)
+)
+```
+
+```{r PCA-var-explained-plot, fig.cap="Cumulative Variance Explained by Principal Components"}
+# plot variance explained 
+ggplot(data_plot_pca, aes(x = PC, y = Cumulative_Variance)) +
+  geom_line(color = "steelblue", size = 1.2) + # Line connecting the points
+  geom_point(color = "steelblue", size = 3, shape = 21, fill = "lightblue") + # Points for each PC
+  # horizontal line to indicate a target variance explained (90%)
+  geom_hline(yintercept = 0.95, linetype = "dashed", color = "red", alpha = 0.7) +
+  annotate("text", x = max(data_plot_pca$PC) * 0.8, y = 0.95,
+           label = "95% Variance Explained", vjust = -0.5, color = "red", size = 4) +
+  labs(
+    x = "Number of Principal Components",
+    y = "Cumulative Proportion of Variance Explained"
+  ) +
+  # Format y-axis as percentages
+  scale_y_continuous(labels = scales::percent, limits = c(data_plot_pca$Cumulative_Variance[1], 1)) +
+  # x-axis breaks are at integer PC numbers
+  scale_x_continuous(breaks = seq(1, length(var_explained), by = 1)) +
+  theme_light()
+```
+```{r loadings-pca-plot, fig.cap="Loadings of Original Variables on PC1-PC6"}
+X_pcs_to_consider <- 6
+# Access the loadings matrix
+loadings_matrix <- pca_results$rotation
+# Select the loadings for the first X principal components
+top_x_pcs_loadings <- loadings_matrix[, 1:X_pcs_to_consider]
+# 
+# Convert the loadings matrix to a "long" format for ggplot2
+# This creates columns for 'Variable', 'Principal_Component', and 'Loading'
+loadings_long_df <- top_x_pcs_loadings %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column(var = "Variable") %>% # Convert row names (variable names) to a column
+  pivot_longer(
+    cols = starts_with("PC"), # Select all columns that start with "PC"
+    names_to = "Principal_Component",
+    values_to = "Loading"
+  )
+
+# Create the Heatmap Plot
+ggplot(loadings_long_df, aes(x = Principal_Component, y = Variable, fill = Loading)) +
+  geom_tile(color = "white", linewidth = 0.5) + # Create tiles with white borders
+  scale_fill_gradient2(
+    low = "blue",      # Color for negative loadings
+    mid = "white",     # Color for loadings near zero
+    high = "red",      # Color for positive loadings
+    midpoint = 0,      # Center the color scale at zero
+    #limit = max(abs(loadings_long_df$Loading)), # Ensure symmetric limits
+    name = "Loading Value" # Legend title
+  ) +
+  labs(
+    x = "Principal Component",
+    y = "Original Variable"
+  ) +
+  theme_minimal() #+ # A clean theme
+```
+The Figure \@ref(fig:loadings-pca-plot) shows the loadings of the original variables (features) with respect to the 6 first principal components (PC) (see Figure \@ref(fig:PCA-var-explained-plot)). Clearly the lowest important features in the first PC coincide with the lowest size effect features in Table \@ref(tab:feature-importance-tab) as well as Figure \@ref(fig:feature-importance-plot).
+
+The scatter plot of Figure \@ref(fig:PC1-PC2-plot) shows how the data points are spread along the first two principal components from PCA. As can be seen there are clearly two clusters in the plot that shows natural separation ("Malignant" vs. "Benign").
+
+```{r PC1-PC2-plot, fig.cap="PC1 vs PC2"}
+pca_df <- as.data.frame(pca_results$x)
+pca_df$diagnosis <- cancer_data$diagnosis
+
+ggplot(pca_df, aes(x = PC1, y = PC2, color = diagnosis)) +
+  geom_point(alpha = 0.7, size = 2) +
+  scale_color_manual(values = c("Benign" = "lightblue", "Malignant" = "firebrick")) +
+  theme_minimal() +
+  stat_ellipse(type="norm", lwd = 1.)+
+  theme_light()
+```
+
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+# **Methods**
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+This section presents some insights related to the methods and reasoning for the modelling and testing process. Some basic descriptions of the model classes are presented. It is out of the scope of this report to go further in this topics, as well as many of this information is now standard on the literature. 
+
+Additionally the main code snippets and functions are presented as well as the values used for controlling the training and the tune-grids used during the optimization of each model-dependant parameter.
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Preparing data for training and testing
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+As for this task the only available data set is **breast cancer**, it is necessary to split it into a training `train_set` and a validating `test_set` data sets. To this aim, a typical procedure based on `createDataPartition()` function was used by using a `p = 0.2` parameter (20% probability).  In this case `train_set` contains 80% of the extended **breast cancer** data set whereas the `test_set` contains the remaining 20%.
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+### Pre-processing data sets
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+Once the overall data set has been partitioned into train/test sets, it is a common task in pre-processing to centre and scale the data sets. Centering is related to subtract the mean value to the data:
+\begin{equation}
+  f_{ic}^k = f_i -  \text{mean}(f_i). 
+\end{equation}
+Scaling is related to scale by the standard deviation of the data:
+\begin{equation}
+  f_{is}^k = f_{ic}/\text{sd}(f_i).
+\end{equation}
+where $f_i, \ f_{ic}$ and $f_{is}$ are $i-th$ feature and centered and scaled versions respectively and $k\in [\text{train},\text{test}]$. Some remarks are important here:
+\begin{itemize}
+  \item The center/scale process is made after partitioning the overall data set, i.e., on the \verb|train_set| and \verb|test_set|. The training data is supposed to be completely independent from the test data, using  the average or standard deviation from the entire data set to center/scale will take information for the test into the training data, a phenomenon known as "data leakage".
+  \item The center/scale process on the \verb|test_set| is made by using the mean and deviation from the \verb|train_set|. 
+\end{itemize}
+
+In `R` this task is easily accomplished through the `preProcess(x, method = c("center", "scale"))` function from `caret` package.
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Metrics {#sec-metrics}
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+### Confusion matrix
+As in any modelling process, defining the proper metrics for the model performance is a crucial step. In this case, this question is about which metric is most critical for evaluating a *breast cancer diagnostic model*. This particular model corresponds to a *binary classification problem* in which predictions can be categorized into four outcomes, the basic components of a **confusion matrix**:
+
+|                     | **Actual Positive (Cancer)** | **Actual Negative (No Cancer)** |
+| :------------------ | :--------------------------- | :------------------------------ |
+| **Predicted Positive** | True Positive (TP)           | False Positive (FP)             |
+| **Predicted Negative** | False Negative (FN)          | True Negative (TN)              |
+
+defined as:
+\begin{itemize}
+  \item {\bf{True Positive (TP):}} The model correctly predicted a positive case (e.g., predicted Malignant, and it was actually Malignant).
+  \item {\bf True Negative (TN):} The model correctly predicted a negative case (e.g., predicted Benign, and it was actually Benign).
+  \item {\bf False Positive (FP):} The model incorrectly predicted a positive case (e.g., predicted Malignant, but it was actually Benign). This is also known as a Type I error.
+  \item {\bf False Negative (FN):} The model incorrectly predicted a negative case (e.g., predicted Benign, but it was actually Malignant). This is also known as a Type II error.
+\end{itemize}
+
+From here on, it is assumed that "Malignant" is the \emph{positive} class (the condition to be detected) and "Benign" is the \emph{negative} class. From these components it is possible to define these metrics:
+\begin{itemize}
+  \item {\bf Accuracy:} This is the most straightforward metric. It represents the \emph{overall proportion of correctly classified instances} (both positive and negative) out of all instances. It is given by
+  \begin{equation}
+    Accur = \frac{TP + TN}{ TP+TN+FP +FN}
+  \end{equation}
+  \item {\bf Sensitivity:} This measures the model ability to correctly identify all actual positive cases. In the context of breast cancer, it is the \emph{ proportion of actual Malignant cases that were correctly identified as Malignant}. It is also called {\bf True Positive Rate}.
+  \begin{equation}
+    Sens = \frac{TP}{ TP+FN}
+  \end{equation}
+  \item {\bf Specificity:} This measures the model ability to correctly identify all actual negative cases. In the context of breast cancer, it is the \emph{proportion of actual Benign cases that were correctly identified as Benign}. It is also called {\bf True Negative Rate}.
+  \begin{equation}
+    Spec = \frac{TN}{ TN+FP}
+  \end{equation}
+\end{itemize}
+
+
+Even *accuracy* seems to be the most intuitive metric, it can be misleading, particularly in data sets characterized by class imbalance, which is common in medical contexts (e.g., breast cancer data sets where healthy cases often significantly outnumber cancer cases). This fact was reflected here in Table \@ref(tab:table-proportion-diag) where, for this data set, the number of Malignant cases were barely half the number of benign ones.
+
+On the other hand, if a real scenario is assumed, this modelling process should not be only aforded as pure a numerical exercise, but actual medical considerations must be taken into account. For example, [@bib:False_pos] shows that, by 2015 the cost of breast cancer overdiagnosis has been estimated to be \$4 Billion a year. Human harder consequences can be observed is a more conservative approach is taken, i.e., underdiagnosis or a bias or an disproportionate number of false negatives may lead to a high cost in human lives. 
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+### The ROC Curve and AUC
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+The called "ROC" metric refers to the *Receiver Operating Characteristic* (ROC) curve, and more commonly, its associated summary statistic, the *Area Under the Curve* (AUC). It's a fundamental tool for evaluating the performance of binary classification models.
+
+An ROC curve is a graphical plot that illustrates the diagnostic ability of a binary classifier system as its discrimination threshold is varied.
+\begin{itemize}
+  \item {\bf x-axis:} False Positive Rate (FPR), also known as (1 - Specificity).
+  \item {\bf y-axis:} True Positive Rate (TPR), also known as Sensitivity or Recall.
+\end{itemize}
+Axes:
+
+As classification threshold (from 0 to 1) is modified, a different pair of (FPR, TPR) values is obtained. Plotting all these pairs traces out the ROC curve.
+\begin{itemize}
+  \item A threshold of 1.0 (very strict) would likely classify everything as negative, giving a low TPR and low FPR (closer to (0,0)).
+  \item A threshold of 0.0 (very lenient) would likely classify everything as positive, giving a high TPR and high FPR (closer to (1,1)).
+\end{itemize}
+
+The AUC is a single scalar value that summarizes the overall performance of the classifier across all possible classification thresholds. It is simply the area underneath the ROC curve. The AUC represents the probability that a randomly chosen positive example will be ranked higher (assigned a higher probability of being positive) than a randomly chosen negative example. Values range from 0 to 1:
+
+\begin{itemize}
+  \item 0.5: The model has no discriminatory power; it's as good as random guessing (represented by a diagonal line from (0,0) to (1,1)).
+  \item 0.7 - 0.8: Generally considered acceptable discrimination.
+  \item 0.8 - 0.9: Considered excellent discrimination.
+  \item 0.9 - 1.0: Considered outstanding or exceptional discrimination.
+  \item 1.0: Perfect discrimination (the curve goes straight up from (0,0) to (0,1) and then across to (1,1)).
+\end{itemize}
+
+In `R` it is straightforward to calculate AUC and data for ROC curve through the `pROC` package, just using functions `roc()` and `auc()` . Additionally there exist variations based on `ggplot` for plotting ROC curves by using `ggroc()`.
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+### The F1 metrics
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+The F1-score is the *harmonic mean of Precision and Recall* (Sensitivity). It is defined as
+\begin{equation}
+  F1 = 2 \frac{\text{precision} \times \text{sensitivity} }{\text{precision} + \text{sensitivity}},
+\end{equation}
+where the *precision* (how many predicted as positive are actually positive) is
+\begin{equation}
+  \text{precision} = \frac{TP }{TP + FP}.
+\end{equation}
+Clearly it is focused on minimizing false positives. The F1-score provides a single metric that gives equal weight to Precision and Recall. A high F1-score means the model has both high Precision (few false alarms) and high Recall (misses few actual positives).
+
+In `R` the F1-score as well as sensitivity and specificity, can be obtained from the  `caret::confusionMatrix()`, by accessing list field `$byClass`.  
+Here the ROC, specificity and sensitivity metrics are used for training and selecting the best model during CV. The F1-score is used during the training of the *ensemble model*.
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+# **Modelling process**
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+For the modelling process, four different strategies have been selected, *k-Nearest neighbour (kNN)*, *Random forest*, *radial support vector machine (SVM)* and *xgbTree*. Small summary of these models are presented next. Further theoretical details are out of the scope of this report. Most of these models where discussed in the book by[@irizarry_2020] and through the course. A total of ten cross validation (CV), each one repeated five times for each model class will be run, these parameters passed to the `train()` function of `caret` package through the `trainControl()` function. The set of parameters is summarized in Table \@ref{tab:train-control-setup-table}.
+
+```{r train-control-setup-table }
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 10, # 10-fold cross-validation
+                           repeats = 5, # repeat each cross-validation 10 times
+                           classProbs = TRUE, # class probabilities computed
+                           returnResamp = "final", # only save the final resampled summary metrics (saves out-of-fold predictions for ensemble)
+                           savePredictions = "final",
+                           allowParallel = TRUE,    # allow parallel processing
+                           summaryFunction = twoClassSummary, # For metrics like AUC, Sensitivity, Specificity
+                           selectionFunction = "best"          # Select model with max AUC
+)
+
+control_table <- tibble::tribble(
+  ~Parameter,           ~Value,
+  "method",            "repeatedcv",
+  "number",            "10",
+  "repeats",           "5",
+  "classProbs",        "TRUE",
+  "returnResamp",      "final",
+  "savePredictions",   "final",
+  "allowParallel",     "TRUE",
+  "summaryFunction",   "twoClassSummary",
+  "selectionFunction", "best"
+)
+
+kable(control_table, caption = "Paramenters used during training and cross validation") %>%
+    kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## k-Nearest neighbour (kNN)
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+K-Nearest Neighbors (KNN) is a supervised machine learning algorithm used for both classification and regression tasks [@bib:Duda2001]. It is often described as a "lazy" or "instance-based" learner because it does not build a model during a training phase, but rather memorizes the entire training data set.
+
+KNN operates on the principle that "similar things are in close proximity" When predicting the outcome for a new, unlabeled data point, KNN looks at the $k$ closest data points (its "neighbours") in the training data set and uses their known labels or values to make a prediction.
+
+When training a KNN model, the key parameter is the number of neighbours $k$, s.t.,
+\begin{itemize}
+  \item {\bf Small $k$:} Highly flexible, fits training data tightly. Risk of overfitting (noisy data causes instability).
+  \item  {\bf Large $k$:} Smoother decision boundaries. Risk of underfitting (may ignore local patterns).
+\end{itemize}
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Random forest
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+Random Forest is a versatile and popular ensemble learning method for both classification and regression. It operates by constructing a multitude of decision trees at training time and outputting the class that is the mode of the classes (classification) or mean prediction (regression) of the individual trees. It is an example of a "bagging" (bootstrap aggregating) ensemble.
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Radial Support Vector Machines (SVM)
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+Radial Support Vector Machines (SVM) use the Radial Basis Function (RBF) kernel to handle non-linear classification by transforming data into a higher-dimensional space where it becomes separable.
+
+The RBF measures similarity between points using
+\begin{equation}
+  K(x_i,x_j) = \exp (-\sigma ||x_i - x_j ||^2),
+\end{equation}
+where $\sigma$ controls flexibility, s.t.,
+\begin{itemize}
+  \item {\bf High $\sigma$:} Tight, complex boundaries (risk of overfitting)
+  \item  {\bf Low $\sigma$:} Smoother, broader boundaries (may underfit)
+\end{itemize}
+
+Additionally there is a *Regularization parameter* $C$ which controls the trade-off between margin width and misclassifications, s.t., 
+\begin{itemize}
+  \item {\bf High $C$:} Strict margin, fewer misclassifications (risk of overfitting)
+  \item  {\bf Low $C$:} Wider margin, allows some errors (better generalization)
+\end{itemize}
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## xgbTree
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+XGBoost, short for "Extreme Gradient Boosting," is an optimized, distributed, and highly efficient implementation of Gradient Boosting Machines (GBM). It's an ensemble learning method primarily based on boosting, which sequentially builds models that correct the errors of previous models. It is exceptionally popular for both classification and regression tasks due to its speed and performance.
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Ensemble weighted probabilities
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+AS a last step in the training process, an ensemble model is built. There is no specific rule for building ensemble models, but the main idea is to mix the properties of first level models into a new one, trying to get additional information into an improved model. Even a common approach is to stack a model from the out-off fold probabilities of best models calculated during the CV and then train a logistic regression model, here a simpler approach will be applied. 
+
+The idea behind this ensemble is to take the out-of-fold (oof) best models from the CV process, regardless the metric used during training. For each model class, a linear combination of its set of probabilities, filtered by the positive category (in this case the positive category is set to `Malign`), with a set of weights is calculated, this is,
+\begin{equation}
+  p_e = \sum_{i=1}^{n_c} w_i p_i,
+\end{equation}
+where $p_e$ and $pc_i$ correspond to the ensemble and each one of the $n_c$ class predictors, respectively and $w_i$ represents the selected weights. Optimal weights are not known beforehand, so a simple solution for selecting $w_i$ is by defining a grid and calculate an specific metric iteratively (F1 or AUC). This process can be made easily with a function like this:
+
+```{r code-F1-AUC-func, eval=FALSE, echo=TRUE}
+compute_f12 <- function(w,p,yData) {
+  # Inputs: 
+  # w: a set of weights to be tested
+  # p: the predictions training data set
+  # yData: diagnosis variable
+  # Outputs:
+  # A tibble containing the F1 and AUC metrics for the set of weights tested
+  # according to: # ensemble_p = w[1]*p1 + w[2]*p2 + w[n]*pn +...
+  w <- as.numeric(w)
+  
+  ensemble_p <- as.numeric(p%*%as.matrix(w))
+  pred_class <- ifelse(ensemble_p >= 0.5, "Malignant", "Benign")
+  pred_class <- factor(pred_class, levels = levels(yData))
+  cm <- confusionMatrix(pred_class, yData, positive = "Malignant")
+  roc_obj <- roc(yData, ensemble_p, levels = rev(levels(yData)))
+  tibble(F1 = cm$byClass["F1"], AUC = as.numeric(auc(roc_obj)))
+}
+```
+
+For this case $w_1, w_2 \in [0.005,1]$ by steps of $0.005$, $w_3 = 1- (w_1 + w_2)$, for a ensemble of three models. For a 4 models ensemble $w_1, w_2, w_3 \in [0.05,1]$ by steps of $0.05$, $w_4 = 1- (w_1 + w_2 + w_3)$. 
+It should be noted that this entire procedure is performed on the training dataset. Once the "optimal" weights, which maximize F1 or AUC, are selected, new predictions are generated using the test set, allowing the quality of the ensemble model to be assessed through the linear combination. A simple code example for this task is:
+
+```{r code-ensemble, eval=FALSE, echo=TRUE}
+cl <- makeCluster(detectCores() -1) # Create a cluster
+registerDoParallel(cl)         # Register clusted for foreach/caret
+
+# Prepare data set
+p <- as.matrix(meta_features_train%>% select(-rowIndex))
+# iterate models from predefined weights grid (parallel processing)
+f1_AUC <- foreach(i = 1:nrow(grid), .combine = bind_rows,
+                      .export = c("grid", "compute_f12", "p","yENS"),
+                      .packages = c("caret","pROC","dplyr")
+) %dopar% {
+  # current set of weights
+  current_weights <- grid[i, 1:3]
+  # Obtain F1 and AUC for current weight
+  compute_f12(current_weights, p, yENS)
+}
+stopCluster(cl)
+aaa <- f1_AUC %>% summarise(b_F1 = which.max(F1),b_AUC = which.max(AUC))
+grid$F1 <- f1_AUC$F1
+
+# Best weights
+best_row <- grid[aaa$b_F1, ]
+best_weights <- as.numeric(best_row[1:3])
+
+# VERIFY MODEL ON TEST DATA PREDICTIONS (already calculated with model_metrics_results())
+svm_p <- model_svm[[4]][, "Malignant"]
+xgb_p <- model_xgbTree[[4]][, "Malignant"]
+knn_p <- model_knn[[4]][, "Malignant"]
+rf_p  <- model_rf[[4]][, "Malignant"]
+
+# Use best weights to compute final ensemble prob
+ensemble_p_best <- best_weights[1]*svm_p + best_weights[2]*xgb_p + best_weights[3]*knn_p
+pred_class <- ifelse(ensemble_p_best >= 0.5, "Malignant", "Benign")
+pred_class <- factor(pred_class, levels = levels(y_T))
+# Calculate confusionMatrix and information within
+cm <- confusionMatrix(pred_class, y_T, positive = "Malignant")
+
+# calculate ROC metric
+roc_obj <- roc(y_T, ensemble_p_best, levels = rev(levels(y_T)))
+```
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Tuning grids
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+According to former descriptions, the set of tune-grids used for CV training of the selected classes of models are summarized in \@ref(tab:tuning-grids-table).
+
+```{r tuning-grids-table}
+tuning_grids <- tibble::tribble(
+  ~Model,   ~`Parameters (Class)`,          ~Range,
+  "KNN",    "k",                 "1 to 60 by 2",
+  "SVM",    "sigma, C ", "sigma: 0.01, 0.1, 0.25; C: 1 to 10 by 1",
+  "RF",     "mtry",              "1 to 30 by 2",
+  "XGBoost", "nrounds, max_depth , eta , gamma, colsample_bytree , min_child_weight, subsample", 
+  "nrounds: 100, 200; max_depth: 2 to 10 by 2; eta: 0.1 to 1 by 0.25; gamma: 0; colsample_bytree: 0.8; min_child_weight: 1; subsample: 0.8"
+)
+
+knitr::kable(tuning_grids, 
+             caption = "Model Tuning Grids Summary",
+             align = c("l", "l", "l"))%>%
+  kableExtra::column_spec(1, width = "2cm") %>%    # Model column
+  kableExtra::column_spec(2, width = "6cm") %>%    # Parameters column
+  kableExtra::column_spec(3, width = "7cm")%>%        # Range column
+  kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## PCA data-based models
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+As discussed in former sections, it is possible to improve the modelling process by including the concept of *principal components*. A full set of models will be built by considering this strategy, in such a way the redundant or perhaps less informative features are "filtered" from the data used during CV and training.
+
+The implementation of PCA data-based modelling is straightforward in `caret` package, it requires considering again the `preProcess()` function, just adding the key `pca` as a parameter, this is,  `preProcess(x, method = c("center", "scale", "pca"), thresh = 0.95 )`. By following this procedure, the `caret::train()` function will use the PCA dataset that describes a 95% of the data variance (see Figure \@ref(fig:PCA-var-explained-plot)). 
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Multiple metrics approach
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+One important issue identified during preliminary training (not detailed here for simplicity) is the significant impact of the model selection metric on overall model performance during CV. To incorporate this understanding into the modelling process, each model class is evaluated using three distinct metrics: *Sensitivity*, *Specificity*, and *AUC.* This evaluation considers the tune-grids and training control settings already defined (Table \@ref(tab:train-control-setup-table) and Table \@ref(tab:tuning-grids-table)). This task is straightforwardly accomplished using the following function, which trains and evaluates all models, applying multiple metrics for optimal model selection during the tuning process:
+
+```{r function-for-training,eval=FALSE, echo=TRUE}
+model_metrics_results <- function(m_method, tune_grid, params_tuned){
+  # Inputs:
+  # m_method: the trained method to be used ("knn", "rf", "svm", "xgb")
+  # tune_grid: grid for optimizing each class method (k, mtry, eta, sigma,etc)
+  # params_tuned: names of the optimized parameters (only for summarizing purposes)
+  # Outputs:
+  # 1: tibble summarizing metrics, 2: tuned models (ROC, Sens, Spec), 
+  # 3: tibble ROC data, 4: predicted probabilities on test data (pred_probs)
+
+  # List to store trained model objects
+  trained_models_list <- list()
+  
+  # List to store ROC curves for plotting
+  roc_curves_list <- list()
+  
+  # Create an empty tibble to store results
+  metrics_model_results <- tibble(
+    method = character(), # trained method
+    metric = character(), # the metric used for selecting the "best" in CV
+    Accuracy = numeric(),
+    Sensitivity = numeric(),
+    Specificity = numeric(),
+    AUC = numeric(), 
+    F1 = numeric(),
+    best_p_cv = list(), # store the optimal cross validation value(s)
+    parameter = character() # 
+  )
+  
+  # Metrics to optimize for during cross-validation
+  # "ROC" is AUC, "Sens" is Sensitivity, "Spec" is Specificity
+  optimization_metrics <- c("ROC", "Sens", "Spec")
+  # iterate a for loop for training/testing a model by modifying the metrics
+  # for the cross validation/folding  
+  for (i in 1:length(optimization_metrics)){
+    
+    opt_metric <- optimization_metrics[i]
+    message(paste0("Training ", m_method, " model optimizing for: ", opt_metric))
+    
+    # Train the  model
+    # Set an specific seed, for repeatability results, can be neglected later
+    set.seed(7, sample.kind = "Rounding")
+    model_tuned <- train(
+      xS, y,
+      method = m_method,
+      tuneGrid = tune_grid,
+      trControl = fitControl,
+      metric = opt_metric )
+    
+    # Store the trained model
+    trained_models_list[[opt_metric]] <- model_tuned
+    
+    # Make predictions on the *test* set, will be used in ensemble modelling
+    pred_classes <- predict(model_tuned, newdata = xS_T, type = "raw")
+    pred_probs <- predict(model_tuned, newdata = xS_T, type = "prob")
+    
+    # Calculate Confusion Matrix and metrics on the TEST SET
+    results_cm <- confusionMatrix(
+      pred_classes,
+      y_T,
+      positive = positive_class_label)
+    
+    # Calculate AUC for the test set
+    roc_obj <- roc(
+      response = y_T,
+      predictor = pred_probs[[positive_class_label]],#probabilities for the positive class
+      levels = levels(y_T))
+    
+    # Store the best model AUC
+    auc_value <- as.numeric(auc(roc_obj))
+    roc_curves_list[[opt_metric]] <- roc_obj
+    # Store the best model parameter (k_best, sigma_best, etc)
+    best_param_value <- model_tuned$bestTune[params_tuned]
+    
+    # Store the results
+    current_results <- tibble(
+      method = m_method,
+      metric = opt_metric,
+      Accuracy = results_cm$overall["Accuracy"],
+      Sensitivity = results_cm$byClass["Sensitivity"],
+      Specificity = results_cm$byClass["Specificity"],
+      AUC = auc_value,
+      F1 = results_cm$byClass["F1"],
+      best_p_cv = list(best_param_value), 
+      parameter = paste(params_tuned, collapse = ", "))
+    
+    metrics_model_results <- bind_rows(metrics_model_results, current_results)
+  }
+  # Return a 4 elements list
+  metrics_model_results <- list(metrics_model_results,
+                                trained_models_list,
+                                roc_curves_list,
+                                pred_probs)
+} # end of function model_metrics_results()
+```
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+# Results
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+According to the discussion on metrics from section \@ref(sec-metrics) a first round of models and tests has been tested, here considering `knn`, `svmRadial`,  `rf` and `xgbTree`. Each model has been trained by using the set of metrics selected (sensitivity, specificity and AUC)
+
+```{r load-data-models-1} 
+# loads the data 
+loaded_model <- load(file = "trained_models.RData")
+```
+
+
+
+```{r data-results-table}
+
+kable(all_model_results, caption = "Summary of performance of the models classes") %>%
+  kableExtra::column_spec(9, width = "2cm")%>%        # Range column
+    kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+
+The Table \@ref(tab:data-results-table) summarizes the performance of  the models classes discussed here for the **breast cancer** data set. As can be observed all models show high Accuracy ($\geq$ 0.94), with most $>$ 0.95. For the case of Sensitivity (true positive rate) and specificity (true negative rate) are both excellent across models, critical for medical diagnosis. 
+AUC values are very high (> 0.99 in top models) models have strong discriminative power.
+
+Some comparisons across models can be made:
+\begin{itemize}
+  \item {\bf SVM (Radial Kernel):} Achieved the highest Sensitivity (97.67\%) when optimized for Sensitivity, indicating strong performance in correctly identifying positive cases (e.g., malignant tumors). The highest AUC (0.9997) suggests excellent separability between classes. However, performance varied with hyperparameters: lower specificity (93.06\%) when optimized for specificity, indicating a trade-off between sensitivity and specificity.
+  \item {\bf XGBoost (xgbTree):} Consistently high performance across metrics, with AUC $\approx 0.998$ and Specificity up to 98.61\%. The model showed robustness to hyperparameter changes (e.g., max\_depth from 2 to 8 had minimal impact on performance).
+  \item {\bf Random Forest (rf):} Lower AUC (0.994 – 0.995) compared to SVM and XGBoost, but maintained decent sensitivity (93.02 – 95.35\%). The best performance was achieved with mtry=13 (number of features sampled per split), but simpler models (mtry=1) also performed well, suggesting the data may not require complex feature interactions.
+  \item {\bf k-Nearest Neighbors (knn):} Performance varied significantly with $k$. High specificity (98.61\%) with k=5, but sensitivity dropped to 88.37\% with k=55. Larger $k$ (e.g., 59) improved AUC but reduced sensitivity, highlighting a sensitivity-specificity trade-off.
+\end{itemize}
+
+These results can also be analysed straightforwardly from the heatmap of Figure \@ref(fig:plot-heat-map-1). Something to be stressed here is the fact that the most weak metric is the *sensitivity*, providing the worst results, unlike the AUC and specificity that produce the best ones.
+
+```{r data-heatmap-1}
+all_model_results_H <- all_model_results %>% select(-best_p_cv,-parameter)
+# Select best model per class (adjust criteria as needed)
+best_models <- all_model_results_H %>%
+  group_by(method) %>%
+  slice_max(AUC, n = 1) %>%  # or another criterion like F1
+  ungroup()
+
+# Prepare data for heatmap
+heatmap_data <- best_models %>%
+  select(method, Accuracy, Sensitivity, Specificity, AUC, F1) %>%
+  pivot_longer(cols = c(Accuracy, Sensitivity, Specificity, AUC, F1),
+               names_to = "Metric",
+               values_to = "Value")
+```
+
+```{r plot-heat-map-1, fig.cap= "Best Model per Class Performance Heatmap"}
+
+# Plot heatmap
+ggplot(heatmap_data, aes(x = Metric, y = method, fill = Value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.4f", Value)), color = "black", size = 3) +
+  scale_fill_gradient(low = "white", high = "red", limits = c(0.85, 1)) +
+  theme_minimal() +
+  labs(x = "Metric",
+       y = "Model",
+       fill = "Score")
+```
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## PCA data-based results
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+The results of the trained models for the case where the data set was pre-processed by using PCA are summarized in Table \@ref(tab:data-results-pca-table). These results allow evaluating whether dimensionality reduction improves performance. 
+
+```{r data-results-pca-table}
+
+kable(all_model_results_PCA, caption = "Summary of models with PCA preprocessed data") %>%
+    kableExtra::column_spec(1, width = "2.5cm")%>%        # Range column
+    kableExtra::column_spec(9, width = "2cm")%>%        # Range column
+    kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+The first thing to be stressed is the fact that there is an overall improvement nor worsening.  The addition of PCA-preprocessed models shows generally comparable or improved performance across several metrics, especially in terms of Specificity and AUC, while maintaining high Sensitivity.
+
+Some important remarks
+\begin{itemize}
+  \item {\bf SVM:} he PCA variant achieves Accuracy 0.9826, Sensitivity 0.9535, Specificity 1.000, AUC $\approx 0.999$, F1 $\approx 0.976$. Compared to non-PCA SVM Radial, PCA enhances Specificity (from 0.9861 to 1.000) while preserving overall Accuracy and AUC. The PCA SVM offers slightly better balance when high Specificity is critical.
+%
+\item {\bf KNN:} The best PCA KNN (ROC) model hits Accuracy 0.9826, Sensitivity 0.9535, Specificity 1.000, AUC 0.997, F1 $\approx 0.976$. This is a clear improvement over the non-PCA KNN ROC model (Accuracy 0.9391, AUC 0.991).
+%
+\item {bf XGBoost:} XGBoost PCA (Sens) model yields Accuracy 0.9739, Sensitivity 0.9767, AUC 0.997 — matching or slightly surpassing non-PCA XGBoost in Sensitivity and AUC. However, for ROC optimization, non-PCA XGBoost still edges out in AUC (0.998 vs 0.996).
+%
+\item {\bf Random forest:} PCA RF (ROC) achieves Accuracy 0.9652, AUC 0.991, slightly better than non-PCA RF ROC (AUC 0.995, Accuracy 0.9478). PCA seems to aid RF in Accuracy, though non-PCA RF has slightly higher AUC.
+\end{itemize}
+
+PCA preprocessing benefits KNN and SVM Radial most clearly, especially in boosting Specificity without sacrificing other metrics. For tree-based models (XGBoost, RF), PCA brings more modest or mixed impact. The top models overall are PCA SVM Radial and PCA KNN (ROC-optimized), both combining excellent Specificity (1.0) with high AUC and F1.
+
+```{r data-heatmap-2}
+all_model_results_PCA_H <- all_model_results_PCA %>% select(-best_p_cv,-parameter)
+# Select best model per class (adjust criteria as needed)
+best_models <- all_model_results_PCA_H %>%
+  group_by(method) %>%
+  slice_max(AUC, n = 1) %>%  # or another criterion like F1
+  ungroup()
+
+# Prepare data for heatmap
+heatmap_data <- best_models %>%
+  select(method, Accuracy, Sensitivity, Specificity, AUC, F1) %>%
+  pivot_longer(cols = c(Accuracy, Sensitivity, Specificity, AUC, F1),
+               names_to = "Metric",
+               values_to = "Value")
+```
+
+```{r plot-heat-map-2, fig.cap= "Best Model per Class Performance Heatmap (PCA)"}
+# Plot heatmap
+ggplot(heatmap_data, aes(x = Metric, y = method, fill = Value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = sprintf("%.4f", Value)), color = "black", size = 3) +
+  scale_fill_gradient(low = "white", high = "red", limits = c(0.85, 1)) +
+  theme_minimal() +
+  labs(x = "Metric",
+       y = "Model",
+       fill = "Score")
+```
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+## Ensemble models
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+The Table \@ref(tab:ensemble-data-table) summarizes the results of all the ensemble models that have been built. The probabilistic weighted ensembles wp4 and wp3, both optimized for F1, achieved the highest Accuracy (0.9913043) and perfect Specificity (1.0000000), alongside high Sensitivity (0.9767442) and AUC (0.9990310 and 0.9987080, respectively). Their F1 scores were also among the highest (0.9759036). This indicates that combining predictions from multiple models can lead to superior performance, particularly in balancing precision and recall as reflected by the F1 score.
+
+```{r ensemble-data-table}
+loaded_model <- load(file = "trained_models_ALL.RData")
+
+kable(all_ensembles, caption = "Summary of probabilistic weighted ensemble models with and without PCA preprocessed data") %>%
+    kableExtra::column_spec(1, width = "3.0cm")%>%        # Range column
+    kableExtra::column_spec(8, width = "2.0cm")%>%        # Range column
+    kable_styling(latex_options = c("scale_down","HOLD_position"))
+```
+
+The Figure \@ref(fig:roc-curves-1) shows the ROC curves for the best models, in the sense of AUC, form Tables \@ref(tab:data-results-table) and \ref(tab:ensemble-data-table) (no PCA). All models exhibit high AUC values, indicating strong discriminative power, well above the 0.8 threshold for predictive value. The curves for SVM, ENS W4, ENS W3, and xgbTree are positioned closest to the top-left corner, signifying superior performance in balancing high sensitivity with low false positive rates across thresholds. The SVM (0.9997) and ENS W4 (0.999) show the highest AUCs, suggesting near-perfect discrimination. Notably, the SVM AUC of 0.9997 from this plot aligns closely with the svmRadial model optimized for Sensitivity (AUC 0.9996770) in Table \@ref(tab:data-results-table), rather than its ROC-optimized entry (AUC 0.9739130). This suggests the plot represents the model best overall discriminative capability, which may be achieved when optimized for a metric other than "ROC" directly.
+
+```{r roc-curves-1, fig.cap="ROC Curves for Breast Cancer Classification Models (best models)"}
+ggroc(roc_list, aes = c("color", "linetype")) +
+  geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1), color = "grey", linetype = "dashed") + # Add diagonal line
+  labs(
+#    title = "ROC Curves for Breast Cancer Classification Models",
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Sensitivity)"
+  ) + 
+  scale_color_manual(values = c("blue", "red", "darkgreen","magenta","black","cyan")) + # Customize colors
+  theme_minimal() +
+  annotate("text", x = 0.75, y = 0.86, label = paste("AUC SVM:", round(auc(roc_list$SVM), 4)), col = "blue") +
+  annotate("text", x = 0.75, y = 0.84, label = paste("AUC XGB:", round(auc(roc_list$xgbTree), 4)), col = "red") +
+  annotate("text", x = 0.75, y = 0.82, label = paste("AUC KNN:", round(auc(roc_list$KNN), 4)), col = "darkgreen")+
+  annotate("text", x = 0.75, y = 0.80, label = paste("AUC RF:", round(auc(roc_list$RF), 4)), col = "magenta")+
+  annotate("text", x = 0.75, y = 0.78, label = paste("AUC ENS W3:", round(as.numeric(roc_list$ENS_W3$auc), 4)), col = "black")+
+  annotate("text", x = 0.75, y = 0.76, label = paste("AUC ENS W4:", round(as.numeric(roc_list$ENS_W4$auc), 4)), col = "cyan")+
+  geom_line(linewidth = 1.2) +# Apply linewidth to the ROC curves themselves
+  theme_light()+
+  coord_cartesian(xlim = c(1.05, 0.65), ylim = c(0.65,1.05))
+
+
+```
+On the other hand, Figure \@ref(fig:roc-curves-PCA) show the ROC curves for models trained with PCA preprocessing. Similar to the non-PCA models, all PCA-applied models maintain high AUCs, confirming their strong discriminative ability. The SVM (0.9994) again shows the highest AUC among the PCA models, closely followed by ENS W3 (0.9984) and KNN (0.9981). The SVM AUC of 0.9994 from this plot is higher than its svmRadial_PCA ROC-optimized entry in the Table \@ref(tab:data-results-pca-table) (0.9826087), but aligns with its Sensitivity-optimized AUC (0.9993540) from Table \@ref(tab:data-results-table). The ensemble models (ENS W3 and ENS W4) continue to perform strongly, with AUCs consistent with their F1-optimized entries in the table.
+
+```{r roc-curves-PCA, fig.cap="ROC Curves for Breast Cancer Classification Models (PCA data, best models)"}
+# PCA DATA
+
+ggroc(roc_list_pca, aes = c("color", "linetype")) +
+  geom_segment(aes(x = 1, xend = 0, y = 0, yend = 1), color = "grey", linetype = "dashed") + # Add diagonal line
+  labs(
+    # title = "ROC Curves for Breast Cancer Classification Models (PCA data)",
+    x = "False Positive Rate (1 - Specificity)",
+    y = "True Positive Rate (Sensitivity)"
+  ) +
+  scale_color_manual(values = c("blue", "red", "darkgreen","magenta","black","cyan")) + # Customize colors
+  theme_minimal() +
+  annotate("text", x = 0.75, y = 0.86, label = paste("AUC SVM PCA:", round(auc(roc_list_pca$SVM), 4)), col = "blue") +
+  annotate("text", x = 0.75, y = 0.84, label = paste("AUC XGB PCA:", round(auc(roc_list_pca$xgbTree), 4)), col = "red") +
+  annotate("text", x = 0.75, y = 0.82, label = paste("AUC KNN PCA:", round(auc(roc_list_pca$KNN), 4)), col = "darkgreen")+
+  annotate("text", x = 0.75, y = 0.80, label = paste("AUC RF PCA:", round(auc(roc_list_pca$RF), 4)), col = "magenta")+
+  annotate("text", x = 0.75, y = 0.78, label = paste("AUC ENS W3 PCA:", round(as.numeric(roc_list_pca$ENS_W3$auc), 4)), col = "black")+
+  annotate("text", x = 0.75, y = 0.76, label = paste("AUC ENS W4 PCA:", round(as.numeric(roc_list_pca$ENS_W4$auc), 4)), col = "cyan")+
+  geom_line(linewidth = 1.2) +# Apply linewidth to the ROC curves themselves
+  theme_light() +
+  coord_cartesian(xlim = c(1.05, 0.65), ylim = c(0.65,1.05))
+```
+<!-- 'citation("pROC")' -->
+
+# Conclusions
+
+This analysis presented here, showed how using different optimization goals affects the performance of machine learning models for breast cancer detection. Here were tested k-Nearest Neighbors (knn), eXtreme Gradient Boosting (xgbTree), Support Vector Machine (svmRadial), and ensemble methods, both with and without Principal Component Analysis (PCA). Tuning the models to focus on Area Under the Curve (ROC), Sensitivity, Specificity, or F1-score worked well and made sense for medical use, because it helps match the models to different diagnostic needs.
+
+The ROC curve analysis reinforced several points from the table-based analysis. The consistently high AUC values (all above 0.99 for the top performers) across both PCA and non-PCA models indicate that the models are highly effective at distinguishing between positive and negative breast cancer cases. Visually, the ROC curves confirm that ensemble models and SVM (both with and without PCA) generally achieve the highest discriminative performance, as their curves are closest to the ideal top-left corner.
+
+It was demonstrated the superior Performance of Ensemble and SVM Models. The ensemble methods (e.g., ensemble wp4 P_OOF, ensemble wp3 P_OOF) consistently achieved the highest overall performance, demonstrating near-perfect Accuracy (0.9913043) and Specificity (1.0000000), coupled with high Sensitivity (0.9767442) and AUC (0.9990310). This highlights the benefit of combining multiple models for robust classification.
+SVM models (svmRadial, svmRadial_PCA) also exhibited strong performance, particularly when optimized for Sensitivity or ROC, achieving high Accuracy, Sensitivity, Specificity, and AUC values (e.g., svmRadial Sens with AUC 0.9996770).
+
+The PCA impact on model performance varied. For SVM and KNN, PCA generally maintained or slightly improved performance, particularly in achieving perfect Specificity in some configurations. For XGBoost and Random Forest, PCA sometimes led to minor reductions in AUC compared to their non-PCA counterparts.
+
+
+# References
